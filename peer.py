@@ -119,18 +119,25 @@ class Peer:
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client_socket.connect((peer_ip, peer_port))
         client_socket.send(f"{filename} {chunk_id}".encode())
+        client_socket.settimeout(1)
 
-        chunk = client_socket.recv(BUFFER_SIZE)
-        client_socket.close()
+        try:
+            chunk = client_socket.recv(BUFFER_SIZE)
 
-        if b"ERROR" not in chunk:
-            print(f"Peer {self.peer_id} received chunk {chunk_id} of {filename} from {peer_ip}:{peer_port}, saving to file.")
-            # Save chunk to the peer's directory
-            with open(os.path.join(self.chunk_dir, f"{chunk_id}.chunk"), "wb") as f:
-                f.write(chunk)
-            print(f"Peer {self.peer_id} saved chunk {chunk_id} of {filename} successfully.")
-        else:
-            print(f"Peer {self.peer_id} failed to receive chunk {chunk_id} of {filename} from {peer_ip}:{peer_port}.")
+            if b"ERROR" not in chunk:
+                print(
+                    f"Peer {self.peer_id} received chunk {chunk_id}: {chunk} of {filename} from {peer_ip}:{peer_port}, saving to file.")
+                # Save chunk to the peer's directory
+                with open(os.path.join(self.chunk_dir, f"{chunk_id}.chunk"), "wb") as f:
+                    f.write(chunk)
+                print(f"Peer {self.peer_id} saved chunk {chunk_id} of {filename} successfully.")
+            else:
+                print(
+                    f"Peer {self.peer_id} failed to receive chunk {chunk_id} of {filename} from {peer_ip}:{peer_port}.")
+        except OSError:
+            print(f"Peer {self.peer_id} TIMED OUT requesting chunk {chunk_id} of {filename} from {peer_ip}:{peer_port}.")
+        finally:
+            client_socket.close()
 
     def get_peers_for_file(self, filename, chunk_id):
         """ Ask tracker for available peers with the requested file chunk """
@@ -169,7 +176,6 @@ class Peer:
         """ Start a thread to update chunk availability every 10 seconds """
         while True:
             self.update_chunk_availability()
-            time.sleep(10)  # Wait for 10 seconds before the next update
 
     def switch_peer_connection(self):
         """ Randomly select a peer to connect with for chunk requests """
@@ -182,16 +188,26 @@ class Peer:
             print(f"No available peers to connect to for {self.peer_id}.")
             return None
 
-    def request_chunks(self, peers, i):
+    def request_chunks(self):
+        start_time = time.time()
+
         for chunk_id in range(3):  # Request all chunks (0, 1, 2)
-                selected_peer = peers[i].switch_peer_connection()
-                if selected_peer:
-                    peers[i].request_chunks_from_available_peers("file1.txt", chunk_id)
+                now = time.time()
+                if now - start_time >= 10:
+                    self.update_chunk_availability()
+                    start_time = time.time()
+
+                # selected_peer = peers[i].switch_peer_connection()
+                # if selected_peer:
+                self.request_chunks_from_available_peers("file1.txt", chunk_id)
+                # else:
+                #     print(f"No selected peer for {self.peer_id}")
                 time.sleep(2)  # Wait before the next chunk request
 
 if __name__ == "__main__":
     print('---------------------------------------------------------------------------------')
     peers = []
+    threads = []
     for i in range(10):
         is_origin = (i == 0)  # First peer is the origin
         files = {"file1.txt": [0, 1, 2]} if is_origin else {}  # Only the origin peer has files
@@ -200,10 +216,14 @@ if __name__ == "__main__":
         peers.append(peer)
 
         # Start TCP server for each peer in a separate thread
-        threading.Thread(target=peer.start_server, daemon=True).start()
+        thread1 = threading.Thread(target=peer.start_server, daemon=False)
+        thread1.start()
+        start_time = time.time()
 
         # Start periodic updates for chunk availability
-        threading.Thread(target=peer.start_periodic_updates, daemon=True).start()
+        # thread2 = threading.Thread(target=peer.start_periodic_updates, daemon=True)
+        # thread2.start()
 
-    # Example: Request chunks from available peers for non-origin peers
-        threading.Thread(target=peer.request_chunks, args=(peers, i), daemon=True).start()
+        # Example: Request chunks from available peers for non-origin peers
+        thread3 = threading.Thread(target=peer.request_chunks, daemon=False)
+        thread3.start()
