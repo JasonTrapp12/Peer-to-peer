@@ -7,6 +7,7 @@ import random  # Import random for selecting peers
 
 TRACKER_URL = "http://127.0.0.1:5000"
 BUFFER_SIZE = 512  # chunks
+TOTAL_CHUNKS = 20  # Total number of chunks
 
 class Peer:
     def __init__(self, peer_id, port, files, is_origin=False):
@@ -17,7 +18,33 @@ class Peer:
         self.is_origin = is_origin
         self.chunk_dir = f"chunks/{self.peer_id}"  # Directory to store chunks
         os.makedirs(self.chunk_dir, exist_ok=True)  # Create directory if it doesn't exist
-    
+        
+        if self.is_origin:
+            self.create_chunks()  # Create chunks for the origin peer
+
+    def create_chunks(self):
+        """ Create 20 chunks for the origin peer from file1.txt """
+        # Read the content of the original file
+        with open("file1.txt", "r") as original_file:
+            content = original_file.read()
+        
+        # Calculate the size of each chunk
+        chunk_size = len(content) // TOTAL_CHUNKS
+        
+        for chunk_id in range(TOTAL_CHUNKS):
+            start_index = chunk_id * chunk_size
+            # For the last chunk, take the remainder of the content
+            if chunk_id == TOTAL_CHUNKS - 1:
+                chunk_data = content[start_index:]  # Take the rest of the content
+            else:
+                chunk_data = content[start_index:start_index + chunk_size]
+            
+            # Write the chunk data to the corresponding chunk file
+            with open(os.path.join(self.chunk_dir, f"{chunk_id}.chunk"), "w") as f:
+                f.write(chunk_data)  # Write the actual text to the chunk file
+        
+        self.files["file1.txt"] = list(range(TOTAL_CHUNKS))  # Update files to reflect all chunks
+
     def get_local_ip(self):
         """ Get local IP address """
         return socket.gethostbyname(socket.gethostname())
@@ -75,7 +102,6 @@ class Peer:
             if peer_id != self.peer_id:  # Don't update from self
                 print(f"Peer {self.peer_id} sees that {peer_id} has files: {info['files']}")
                 # Here you can implement logic to update local files based on what peers have
-                # For example, you might want to merge the files into the local files dictionary
                 for filename, chunk_ids in info['files'].items():
                     if filename not in self.files:
                         self.files[filename] = []
@@ -104,8 +130,9 @@ class Peer:
 
         if filename in self.files and chunk_id in self.files[filename]:
             print(f"Peer {self.peer_id} is sending chunk {chunk_id} of {filename} to {client_socket.getpeername()}.")
-            with open(filename, "rb") as f:
-                f.seek(chunk_id * BUFFER_SIZE)
+            with open(os.path.join(self.chunk_dir, f"{chunk_id}.chunk"), "r") as f:
+                chunk_data = f.read()  # Read the content of the chunk file
+                client_socket.sendall(chunk_data.encode())  # Send the chunk data to the requesting peer
             print(f"Peer {self.peer_id} sent chunk {chunk_id} of {filename} to {client_socket.getpeername()}.")
         else:
             print(f"ERROR: Chunk {chunk_id} of {filename} not found for peer {self.peer_id}.")
@@ -125,15 +152,13 @@ class Peer:
             chunk = client_socket.recv(BUFFER_SIZE)
 
             if b"ERROR" not in chunk:
-                print(
-                    f"Peer {self.peer_id} received chunk {chunk_id}: {chunk} of {filename} from {peer_ip}:{peer_port}, saving to file.")
+                print(f"Peer {self.peer_id} received chunk {chunk_id} of {filename} from {peer_ip}:{peer_port}, saving to file.")
                 # Save chunk to the peer's directory
                 with open(os.path.join(self.chunk_dir, f"{chunk_id}.chunk"), "wb") as f:
                     f.write(chunk)
                 print(f"Peer {self.peer_id} saved chunk {chunk_id} of {filename} successfully.")
             else:
-                print(
-                    f"Peer {self.peer_id} failed to receive chunk {chunk_id} of {filename} from {peer_ip}:{peer_port}.")
+                print(f"Peer {self.peer_id} failed to receive chunk {chunk_id} of {filename} from {peer_ip}:{peer_port}.")
         except OSError:
             print(f"Peer {self.peer_id} TIMED OUT requesting chunk {chunk_id} of {filename} from {peer_ip}:{peer_port}.")
         finally:
@@ -168,7 +193,6 @@ class Peer:
                 print(f"Peer {self.peer_id} attempting to request chunk {chunk_id} of {filename} from {peer_id} at {peer_ip}:{peer_port}.")
                 self.request_chunk(peer_ip, peer_port, filename, chunk_id)
                 selected_peers.add(peer_id)  # Mark this peer as selected
-                # time.sleep(2)  # Wait for 2 seconds before the next request
 
         print(f"Peer {self.peer_id} completed requests for chunk {chunk_id} of {filename}.")
 
@@ -184,14 +208,10 @@ class Peer:
             return None
 
     def request_chunks(self):
-        for chunk_id in range(3):  # Request all chunks (0, 1, 2)
-                # selected_peer = peers[i].switch_peer_connection()
-                # if selected_peer:
-                # I commented this out because we weren't even using the selected peer
-
-                self.request_chunks_from_available_peers("file1.txt", chunk_id)
-                self.update_chunk_availability()
-                time.sleep(2)  # Wait before the next chunk request
+        for chunk_id in range(TOTAL_CHUNKS):  # Request all chunks (0 to 19)
+            self.request_chunks_from_available_peers("file1.txt", chunk_id)
+            self.update_chunk_availability()
+            time.sleep(2)  # Wait before the next chunk request
 
 if __name__ == "__main__":
     print('---------------------------------------------------------------------------------')
@@ -199,7 +219,7 @@ if __name__ == "__main__":
     threads = []
     for i in range(10):
         is_origin = (i == 0)  # First peer is the origin
-        files = {"file1.txt": [0, 1, 2]} if is_origin else {}  # Only the origin peer has files
+        files = {"file1.txt": list(range(TOTAL_CHUNKS))} if is_origin else {}  # Only the origin peer has files
         peer = Peer(peer_id=f"peer{i+1}", port=6000 + i, files=files, is_origin=is_origin)
         peer.register()
         peers.append(peer)
