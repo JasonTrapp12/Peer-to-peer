@@ -4,10 +4,48 @@ import requests
 import os
 import time  # Import time for sleep functionality
 import random  # Import random for selecting peers
+import struct
 
 TRACKER_URL = "http://127.0.0.1:5000"
-BUFFER_SIZE = 512  # chunks
+BUFFER_SIZE = 65565  # chunks
 TOTAL_CHUNKS = 20  # Total number of chunks
+
+def calculate_checksum(packet):
+    checksum = 0
+    for index in range(0, len(packet), 2):
+        if index + 1 < len(packet):
+            chunk = struct.unpack('!H', packet[index:index + 2])[0]
+        else:
+            chunk = struct.unpack('!H', packet[index:index + 1] + b'\x00')[0]
+        checksum += chunk
+    checksum = (checksum >> 16) + (checksum & 0xFFFF)
+    return ~checksum & 0xFFFF
+
+def validate_checksum(packet):
+    """
+    Calculate packet's checksum to see if it's been corrupted
+
+    :param packet: packet to validate
+    :return: True if packet hasn't been corrupted, False otherwise
+    """
+    received_checksum = struct.unpack('!H', packet[0:2])[0]
+    packet_without_checksum = struct.pack('!H', 0) + packet[2:]
+
+    checksum = 0
+    for index in range(0, len(packet_without_checksum), 2):
+        if index + 1 < len(packet_without_checksum):
+            chunk = struct.unpack('!H', packet_without_checksum[index:index + 2])[0]
+        else:
+            chunk = struct.unpack('!H', packet_without_checksum[index:index + 1] + b'\x00')[0]
+        checksum += chunk
+    checksum = (checksum >> 16) + (checksum & 0xFFFF)
+    checksum = ~checksum & 0xFFFF
+
+    if checksum == received_checksum:
+        return True
+    else:
+        print(f"Checksum is invalid: {checksum}. chunk is: {packet[2:]}")
+        return False
 
 class Peer:
     def __init__(self, peer_id, port, files, is_origin=False):
@@ -40,8 +78,8 @@ class Peer:
                 chunk_data = content[start_index:start_index + chunk_size]
             
             # Write the chunk data to the corresponding chunk file
-            with open(os.path.join(self.chunk_dir, f"{chunk_id}.chunk"), "w") as f:
-                f.write(chunk_data)  # Write the actual text to the chunk file
+            with open(os.path.join(self.chunk_dir, f"{chunk_id}.chunk"), "wb") as f:
+                f.write(chunk_data.encode('utf-8'))
         
         self.files["file1.txt"] = list(range(TOTAL_CHUNKS))  # Update files to reflect all chunks
 
@@ -130,9 +168,12 @@ class Peer:
 
         if filename in self.files and chunk_id in self.files[filename]:
             print(f"Peer {self.peer_id} is sending chunk {chunk_id} of {filename} to {client_socket.getpeername()}.")
-            with open(os.path.join(self.chunk_dir, f"{chunk_id}.chunk"), "r") as f:
-                chunk_data = f.read()  # Read the content of the chunk file
-                client_socket.sendall(chunk_data.encode())  # Send the chunk data to the requesting peer
+            with open(os.path.join(self.chunk_dir, f"{chunk_id}.chunk"), "rb") as f:
+                chunk_data = f.read() # Read the content of the chunk file
+                initial_packet = struct.pack('!H', 0) + chunk_data
+                checksum = calculate_checksum(initial_packet)
+                packet = struct.pack('!H', checksum) + chunk_data
+                client_socket.sendall(packet)  # Send the chunk data to the requesting peer
             print(f"Peer {self.peer_id} sent chunk {chunk_id} of {filename} to {client_socket.getpeername()}.")
         else:
             print(f"ERROR: Chunk {chunk_id} of {filename} not found for peer {self.peer_id}.")
@@ -151,11 +192,13 @@ class Peer:
         try:
             chunk = client_socket.recv(BUFFER_SIZE)
 
-            if b"ERROR" not in chunk:
+            if not validate_checksum(chunk):
+                print(f"Peer {self.peer_id} received CORRUPTED chunk {chunk_id} of {filename} from {peer_ip}:{peer_port}.")
+            elif b"ERROR" not in chunk:
                 print(f"Peer {self.peer_id} received chunk {chunk_id} of {filename} from {peer_ip}:{peer_port}, saving to file.")
                 # Save chunk to the peer's directory
                 with open(os.path.join(self.chunk_dir, f"{chunk_id}.chunk"), "wb") as f:
-                    f.write(chunk)
+                    f.write(chunk[2:])
                 print(f"Peer {self.peer_id} saved chunk {chunk_id} of {filename} successfully.")
             else:
                 print(f"Peer {self.peer_id} failed to receive chunk {chunk_id} of {filename} from {peer_ip}:{peer_port}.")
