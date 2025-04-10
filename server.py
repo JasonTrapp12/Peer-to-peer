@@ -16,32 +16,36 @@ def register():
         "port": data['port'],
         "files": data['files']
     }
-    print(f"Peer registered: {peer_id} at {data['ip']}:{data['port']} with files: {data['files']}")
+    print(f"Peer registered: {peer_id} at {['ip']}:{data['port']} with files: {data['files']}")
     print(f"Current peers: {peers}")
     return jsonify({"message": "Peer registered", "peers": peers}), 200
 
 @app.route('/get_peers', methods=['GET'])
 def get_peers():
-    """ Get a list of peers that have a specific file chunk """
+    """ Get a list of peers that have a specific file chunk and track availability of all chunks. """
     filename = request.args.get('filename')
-    chunk_id = request.args.get('chunk_id')
+    
+    if not filename:
+        return jsonify({"error": "Filename required"}), 400
 
-    if not filename or chunk_id is None:
-        print("Error: Filename and chunk_id required")
-        return jsonify({"error": "Filename and chunk_id required"}), 400
-
-    chunk_id = int(chunk_id)
-    available_peers = {}
+    chunk_availability = {}  # Dictionary to store chunk -> number of peers
+    available_peers = {}  # Dictionary to store chunk -> peer list
 
     for peer_id, info in peers.items():
-        if filename in info['files'] and chunk_id in info['files'][filename]:
-            available_peers[peer_id] = {
-                "ip": info["ip"],
-                "port": info["port"]
-            }
+        if filename in info['files']:
+            for chunk_id in info['files'][filename]:
+                if chunk_id not in available_peers:
+                    available_peers[chunk_id] = []
+                    chunk_availability[chunk_id] = 0
+                available_peers[chunk_id].append({
+                    "peer_id": peer_id,
+                    "ip": info["ip"],
+                    "port": info["port"]
+                })
+                chunk_availability[chunk_id] += 1  # Count how many peers have this chunk
 
-    print(f"Available peers for {filename} chunk {chunk_id}: {available_peers}")
-    return jsonify({"peers": available_peers}), 200
+    return jsonify({"peers": available_peers, "availability": chunk_availability}), 200
+
 
 @app.route('/update', methods=['POST'])
 def update():
