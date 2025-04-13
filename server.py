@@ -16,36 +16,30 @@ def register():
         "port": data['port'],
         "files": data['files']
     }
-    print(f"Peer registered: {peer_id} at {['ip']}:{data['port']} with files: {data['files']}")
+    print(f"Peer registered: {peer_id} at {data['ip']}:{data['port']} with files: {data['files']}")
     print(f"Current peers: {peers}")
     return jsonify({"message": "Peer registered", "peers": peers}), 200
 
 @app.route('/get_peers', methods=['GET'])
 def get_peers():
-    """ Get a list of peers that have a specific file chunk and track availability of all chunks. """
+    """ Get a list of peers that have any chunks of the specified file """
     filename = request.args.get('filename')
     
     if not filename:
         return jsonify({"error": "Filename required"}), 400
 
-    chunk_availability = {}  # Dictionary to store chunk -> number of peers
-    available_peers = {}  # Dictionary to store chunk -> peer list
-
+    available_peers = {}  # Dictionary to store peers that have chunks of the specified file
+    #print(peers.items())
     for peer_id, info in peers.items():
         if filename in info['files']:
-            for chunk_id in info['files'][filename]:
-                if chunk_id not in available_peers:
-                    available_peers[chunk_id] = []
-                    chunk_availability[chunk_id] = 0
-                available_peers[chunk_id].append({
-                    "peer_id": peer_id,
-                    "ip": info["ip"],
-                    "port": info["port"]
-                })
-                chunk_availability[chunk_id] += 1  # Count how many peers have this chunk
+            available_peers[peer_id] = {
+                "ip": info["ip"],
+                "port": info["port"],
+                "chunks": info['files'][filename]  # Include the chunks available for this file
+            }
 
-    return jsonify({"peers": available_peers, "availability": chunk_availability}), 200
-
+    print(f"Available peers for {filename}: {available_peers}")
+    return jsonify({"peers": available_peers}), 200
 
 @app.route('/update', methods=['POST'])
 def update():

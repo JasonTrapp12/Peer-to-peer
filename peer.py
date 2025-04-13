@@ -137,17 +137,19 @@ class Peer:
         response = requests.post(f"{TRACKER_URL}/update", json=data)
         print(f"Response from tracker for peer {self.peer_id}: {response.status_code} - {response.text}")
 
+
     def update_files_from_tracker(self, peers):
         """ Update local files based on available peers """
         for peer_id, info in peers.items():
             if peer_id != self.peer_id:  # Don't update from self
-                print(f"Peer {self.peer_id} sees that {peer_id} has files: {info['files']}")
+                #print(f"Peer {self.peer_id} sees that {peer_id} has files: {info['files']}")
                 # Here you can implement logic to update local files based on what peers have
                 for filename, chunk_ids in info['files'].items():
                     if filename not in self.files:
                         self.files[filename] = []
-                    self.files[filename].extend(chunk_ids)  # Add new chunk IDs to the local files
-                print(f"Updated local files for peer {self.peer_id}: {self.files}")
+                    #self.files[filename].extend(chunk_ids)  # Add new chunk IDs to the local files
+                #print(f"Updated local files for peer {self.peer_id}: {self.files}")
+
 
     def start_server(self):
         """ Start TCP server to serve file chunks """
@@ -257,41 +259,74 @@ class Peer:
             return None
 
     def request_chunks(self):
-        """ Request up to 5 missing chunks, preferring least available first. """
-        response = requests.get(f"{TRACKER_URL}/get_peers?filename=file1.txt")
-        data = response.json()
-        chunk_availability = data.get("availability", {})
-        all_peers = data.get("peers", {})
-        
-        local_chunks = set(self.files.get("file1.txt", []))
-        all_chunk_ids = set(chunk_availability.keys())
-        missing_chunks = list(all_chunk_ids - local_chunks)
+        if self.is_origin:
+            print(f"Peer {self.peer_id} is the origin and will not request chunks.")
+            return
 
-        # Sort missing chunks by their availability (least available first)
-        missing_chunks.sort(key=lambda chunk: chunk_availability.get(chunk, float('inf')))
+        while True:
+            # Ask the tracker for the list of peers and chunk availability
+            response = requests.get(f"{TRACKER_URL}/get_peers?filename=file1.txt")
+            if response.status_code != 200:
+                print(f"Peer {self.peer_id} failed to get peer info from tracker.")
+                time.sleep(3)
+                continue
 
-        downloaded_count = 0
-        requested_chunks = set()
+            data = response.json()
+            print('data' + str(data))
 
-        for chunk_id in missing_chunks:
-            if downloaded_count >= 5:
+            all_peers = response.json()
+
+            local_chunks = set(self.files.get("file1.txt", []))
+            #print(local_chunks)
+            all_chunk_ids = set(all_peers['peers']['peer1']['chunks'])
+            #print("allchunkids" + str(all_chunk_ids))
+            missing_chunks = all_chunk_ids - local_chunks
+            #print(all_chunk_ids)
+            #print('missingchunks' + str(missing_chunks))
+
+            if not missing_chunks:
+                print(f"Peer {self.peer_id} has downloaded all chunks. Done!")
                 break
+            # Exclude only self from peer pool
+            available_peer_ids = [peer_id for peer_id in all_peers['peers'] if peer_id != self.peer_id]
+            print(available_peer_ids)
+            if not available_peer_ids:
+                print(f"Peer {self.peer_id} found no other peers to request from.")
+                time.sleep(3)
+                continue
 
-            peer_list = all_peers.get(chunk_id, [])
-            for peer_info in peer_list:
-                peer_ip = peer_info["ip"]
-                peer_port = peer_info["port"]
+            selected_peer_id = random.choice(available_peer_ids)
+            print('selected peer id' + str(selected_peer_id))
+            selected_peer_info = all_peers['peers'][selected_peer_id]
+            peer_ip = selected_peer_info["ip"]
+            peer_port = selected_peer_info["port"]
+            their_chunks = set(selected_peer_info["chunks"])
 
-                if chunk_id not in requested_chunks:
-                    success = self.request_chunk(peer_ip, peer_port, "file1.txt", chunk_id)
-                    if success:
-                        self.files.setdefault("file1.txt", []).append(chunk_id)
-                        requested_chunks.add(chunk_id)
-                        downloaded_count += 1
-                        break  # Move on to the next chunk after success
+            # Determine which chunks this peer has that we are missing
+            needed_chunks = list(their_chunks & missing_chunks)
 
-        # Update tracker after downloading new chunks
-        self.update_chunk_availability()
+            if not needed_chunks:
+                print(f"Peer {self.peer_id} selected {selected_peer_id}, but they have no needed chunks.")
+                time.sleep(2)
+                continue
+
+            # Pick up to 5 chunks we still need that they have
+            chunks_to_request = needed_chunks[:5]
+            print(f"Peer {self.peer_id} requesting chunks {chunks_to_request} from {selected_peer_id} ({peer_ip}:{peer_port})")
+
+            for chunk_id in chunks_to_request:
+                self.request_chunk(peer_ip, peer_port, "file1.txt", chunk_id)
+                if "file1.txt" not in self.files:
+                    self.files["file1.txt"] = []
+                if chunk_id not in self.files["file1.txt"]:
+                    self.files["file1.txt"].append(chunk_id)
+
+            self.update_chunk_availability()
+
+            delay = random.uniform(1, 3)
+            print(f"Peer {self.peer_id} sleeping for {delay:.2f}s before next round.")
+            time.sleep(delay)
+
 
 
 
