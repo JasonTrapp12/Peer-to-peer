@@ -272,7 +272,6 @@ class Peer:
                 continue
 
             data = response.json()
-            print('data' + str(data))
 
             all_peers = response.json()
 
@@ -289,14 +288,12 @@ class Peer:
                 break
             # Exclude only self from peer pool
             available_peer_ids = [peer_id for peer_id in all_peers['peers'] if peer_id != self.peer_id]
-            print(available_peer_ids)
             if not available_peer_ids:
                 print(f"Peer {self.peer_id} found no other peers to request from.")
                 time.sleep(3)
                 continue
 
             selected_peer_id = random.choice(available_peer_ids)
-            print('selected peer id' + str(selected_peer_id))
             selected_peer_info = all_peers['peers'][selected_peer_id]
             peer_ip = selected_peer_info["ip"]
             peer_port = selected_peer_info["port"]
