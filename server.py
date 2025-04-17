@@ -2,8 +2,6 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Dictionary to track peers and the chunks they have
-# {peer_id: {"ip": ip, "port": port, "files": {filename: [chunk_ids]}}}
 peers = {}
 
 @app.route('/register', methods=['POST'])
@@ -16,26 +14,32 @@ def register():
         "port": data['port'],
         "files": data['files']
     }
-    print(f"Peer registered: {peer_id} at {data['ip']}:{data['port']} with files: {data['files']}")
+    print(f"Peer registered: {peer_id} at {data['ip']}:{data['port']} "
+          f"with files: {data['files']}")
     print(f"Current peers: {peers}")
     return jsonify({"message": "Peer registered", "peers": peers}), 200
 
 @app.route('/get_peers', methods=['GET'])
 def get_peers():
-    """ Get a list of peers that have any chunks of the specified file """
+    """
+    Get a list of peers that have any chunks of the specified file
+
+    :return: the peers
+    """
     filename = request.args.get('filename')
     
     if not filename:
         return jsonify({"error": "Filename required"}), 400
 
-    available_peers = {}  # Dictionary to store peers that have chunks of the specified file
-    #print(peers.items())
+    # Dictionary to store peers that have chunks of the specified file
+    available_peers = {}
     for peer_id, info in peers.items():
         if filename in info['files']:
             available_peers[peer_id] = {
                 "ip": info["ip"],
                 "port": info["port"],
-                "chunks": info['files'][filename]  # Include the chunks available for this file
+                # Include the chunks available for this file
+                "chunks": info['files'][filename]
             }
 
     print(f"Available peers for {filename}: {available_peers}")
@@ -43,7 +47,11 @@ def get_peers():
 
 @app.route('/update', methods=['POST'])
 def update():
-    """ Update a peer's chunk list """
+    """
+    Update a peer's chunk list
+
+    :return: message reporting whether update was successful or not
+    """
     data = request.json
     peer_id = data['peer_id']
     
@@ -57,7 +65,11 @@ def update():
 
 @app.route('/deregister', methods=['POST'])
 def deregister():
-    """ Remove a peer from the tracker """
+    """
+    Remove a peer from the tracker
+
+    :return: message reporting that peer was deregistered
+    """
     data = request.json
     peer_id = data['peer_id']
     
