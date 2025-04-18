@@ -58,7 +58,7 @@ def validate_checksum(packet):
 
 class Peer:
     """Class representing a peer"""
-    def __init__(self, peer_id, port, files, is_origin=False):
+    def __init__(self, peer_id, port, files, filename, is_origin=False):
         """
         Peer constructor
 
@@ -72,6 +72,7 @@ class Peer:
         self.port = port
         self.files = files  # Example: {"file1.txt": [0, 1, 2]}
         self.is_origin = is_origin
+        self.filename = filename
 
         # Directory to store chunks
         self.chunk_dir = f"chunks/{self.peer_id}"
@@ -84,9 +85,9 @@ class Peer:
 
 
     def create_chunks(self):
-        """ Create 20 chunks for the origin peer from file1.txt """
+        """ Create 20 chunks for the origin peer from file1 """
         # Read the content of the original file
-        with open("file1.txt", "r") as original_file:
+        with open(self.filename, "r") as original_file:
             content = original_file.read()
         
         # Calculate the size of each chunk
@@ -106,7 +107,7 @@ class Peer:
                 f.write(chunk_data.encode('utf-8'))
 
         # Update files to reflect all chunks
-        self.files["file1.txt"] = list(range(TOTAL_CHUNKS))
+        self.files[self.filename] = list(range(TOTAL_CHUNKS))
 
     def get_local_ip(self):
         """
@@ -152,11 +153,11 @@ class Peer:
             for filename in os.listdir(self.chunk_dir):
                 if filename.endswith('.chunk'):
                     chunk_id = int(filename.split('.')[0])
-                    if "file1.txt" not in available_chunks:
+                    if self.filename not in available_chunks:
                         # Initialize the list if not present
-                        available_chunks["file1.txt"] = []
+                        available_chunks[self.filename] = []
                     # Add chunk ID to the list
-                    available_chunks["file1.txt"].append(chunk_id)
+                    available_chunks[self.filename].append(chunk_id)
 
             print(f"Non-origin peer {self.peer_id} has chunks: "
                   f"{available_chunks}")
@@ -301,7 +302,7 @@ class Peer:
             # Ask the tracker for the list of peers and chunk
             # availability
             response = requests.get(f"{TRACKER_URL}/get_peers?"
-                                    f"filename=file1.txt")
+                                    f"filename={self.filename}")
             if response.status_code != 200:
                 print(f"Peer {self.peer_id} failed to get peer info "
                       f"from tracker.")
@@ -310,7 +311,7 @@ class Peer:
 
             all_peers = response.json()
 
-            local_chunks = set(self.files.get("file1.txt", []))
+            local_chunks = set(self.files.get(self.filename, []))
             all_chunk_ids = set(all_peers['peers']['peer1']['chunks'])
             missing_chunks = all_chunk_ids - local_chunks
 
@@ -347,11 +348,11 @@ class Peer:
                   f" from {selected_peer_id} ({peer_ip}:{peer_port})")
 
             for chunk_id in chunks_to_request:
-                self.request_chunk(peer_ip, peer_port, "file1.txt", chunk_id)
-                if "file1.txt" not in self.files:
-                    self.files["file1.txt"] = []
-                if chunk_id not in self.files["file1.txt"]:
-                    self.files["file1.txt"].append(chunk_id)
+                self.request_chunk(peer_ip, peer_port, self.filename, chunk_id)
+                if self.filename not in self.files:
+                    self.files[self.filename] = []
+                if chunk_id not in self.files[self.filename]:
+                    self.files[self.filename].append(chunk_id)
 
             self.update_chunk_availability()
 
@@ -367,16 +368,18 @@ if __name__ == "__main__":
     """Create 10 peers, and start threads for each"""
     print('-----------------------------------------------------------'
           '----------------------')
+
+    filename = input("Enter the filename to share (e.g., file1.txt): ").strip()      
     peers = []
     threads = []
     for i in range(10):
         is_origin = (i == 0)  # First peer is the origin
 
         # Only the origin peer has files
-        files = {"file1.txt": list(range(TOTAL_CHUNKS))} if is_origin else {}
+        files = {filename: list(range(TOTAL_CHUNKS))} if is_origin else {}
 
         peer = Peer(peer_id=f"peer{i+1}", port=6000 + i, files=files,
-                    is_origin=is_origin)
+                    is_origin=is_origin, filename=filename)
         peer.register()
         peers.append(peer)
 
