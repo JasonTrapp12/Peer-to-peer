@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+import json
 
 app = Flask(__name__)
 
@@ -42,7 +43,9 @@ def get_peers():
                 "chunks": info['files'][filename]
             }
 
-    print(f"Available peers for {filename}: {available_peers}")
+    print(f"Available peers for '{filename}':")
+    for peer_id, info in available_peers.items():
+        print(f"  {peer_id}: {info['chunks']}")
     return jsonify({"peers": available_peers}), 200
 
 @app.route('/update', methods=['POST'])
