@@ -348,7 +348,8 @@ class Peer:
                   f" from {selected_peer_id} ({peer_ip}:{peer_port})")
 
             for chunk_id in chunks_to_request:
-                self.request_chunk(peer_ip, peer_port, self.filename, chunk_id)
+                self.request_chunk(peer_ip, peer_port, self.filename,
+                                   chunk_id)
                 if self.filename not in self.files:
                     self.files[self.filename] = []
                 if chunk_id not in self.files[self.filename]:
@@ -369,7 +370,8 @@ if __name__ == "__main__":
     print('-----------------------------------------------------------'
           '----------------------')
 
-    filename = input("Enter the filename to share (e.g., file1.txt): ").strip()      
+    filename = (input("Enter the filename to share (e.g., file1.txt): ")
+                .strip())
     peers = []
     threads = []
     for i in range(10):
